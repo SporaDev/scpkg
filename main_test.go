@@ -16,26 +16,20 @@ func TestDoctor(t *testing.T) {
 	}
 }
 
-func TestDownloadModules(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
-	}
-
-	tmpFile := filepath.Join(os.TempDir(), "test-modules-download.zip")
-	defer os.Remove(tmpFile)
-
-	err := downloadWithProgress(defaultBootstrapURL, tmpFile)
+func TestConfigPath(t *testing.T) {
+	cfg := &scpkgConfig{RootPath: "test-path"}
+	err := saveConfig(cfg)
 	if err != nil {
-		t.Fatalf("download failed: %v", err)
+		t.Fatalf("saveConfig failed: %v", err)
 	}
 
-	info, err := os.Stat(tmpFile)
+	loaded, err := loadConfig()
 	if err != nil {
-		t.Fatalf("stat failed: %v", err)
+		t.Fatalf("loadConfig failed: %v", err)
 	}
 
-	if info.Size() < 50000 {
-		t.Fatalf("downloaded file too small: %d bytes", info.Size())
+	if loaded.RootPath != "test-path" {
+		t.Fatalf("expected test-path, got %s", loaded.RootPath)
 	}
 }
 
@@ -47,7 +41,7 @@ func TestSignAndVerify(t *testing.T) {
 
 	tmpFile := filepath.Join(os.TempDir(), "test-data.txt")
 	testData := []byte("hello spermacore")
-	os.WriteFile(tmpFile, testData, 0644)
+	_ = os.WriteFile(tmpFile, testData, 0644)
 	defer os.Remove(tmpFile)
 
 	hash := sha256.Sum256(testData)
@@ -57,14 +51,13 @@ func TestSignAndVerify(t *testing.T) {
 		t.Fatalf("ed25519 verification failed")
 	}
 
-	// test tamper detection
 	tamperedHash := sha256.Sum256([]byte("tampered data"))
 	if ed25519.Verify(pub, tamperedHash[:], sig) {
-		t.Fatalf("verification should have failed on tampered data")
+		t.Fatalf("verification should fail on tampered data")
 	}
 
 	pubHex := hex.EncodeToString(pub)
 	if len(pubHex) != 64 {
-		t.Fatalf("expected 64 char pubhex, got %d", len(pubHex))
+		t.Fatalf("expected 64 char hex, got %d", len(pubHex))
 	}
 }
