@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // runDoctor diagnoses tools and environment
@@ -14,7 +15,21 @@ func runDoctor() error {
 	logInfo("diagnosing environment...")
 
 	rootDir, _ := resolveRootPath(false)
-	fmt.Printf("[✓] spermacore root: %s\n", rootDir)
+	if isSpermaCoreRoot(rootDir) {
+		fmt.Printf("[✓] spermacore root: %s (verified)\n", rootDir)
+	} else {
+		fmt.Printf("[!] spermacore root: %s (warning: missing core/ or CMakeLists.txt)\n", rootDir)
+	}
+
+	// check modules directory
+	hasMod, modPath, count, names := findModules(rootDir)
+	if hasMod && count > 0 {
+		fmt.Printf("[✓] modules folder: found at %s (%d modules: %s)\n", modPath, count, strings.Join(names, ", "))
+	} else if hasMod {
+		fmt.Printf("[-] modules folder: found at %s (empty, run 'scpkg bootstrap' to fetch)\n", modPath)
+	} else {
+		fmt.Printf("[!] modules folder: not found in %s (run 'scpkg bootstrap' to fetch)\n", rootDir)
+	}
 
 	// check go
 	fmt.Printf("[✓] go runtime: %s (%s/%s)\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)

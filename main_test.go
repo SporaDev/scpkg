@@ -62,6 +62,49 @@ func TestSignAndVerify(t *testing.T) {
 	}
 }
 
+func TestSpermaCoreValidation(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-repo")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	if isSpermaCoreRoot(tmpDir) {
+		t.Fatalf("empty/nonexistent dir should not be spermacore root")
+	}
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "core"), 0755)
+	if isSpermaCoreRoot(tmpDir) {
+		t.Fatalf("dir missing CMakeLists.txt / config.toml should not be spermacore root")
+	}
+
+	_ = os.WriteFile(filepath.Join(tmpDir, "CMakeLists.txt"), []byte("cmake_minimum_required(VERSION 3.16)"), 0644)
+	if !isSpermaCoreRoot(tmpDir) {
+		t.Fatalf("valid dir with core/ and CMakeLists.txt should be recognized as spermacore root")
+	}
+}
+
+func TestModulesSearch(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-modules")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	exists, _, count, _ := findModules(tmpDir)
+	if exists || count != 0 {
+		t.Fatalf("nonexistent modules dir should return false, 0")
+	}
+
+	modDir := filepath.Join(tmpDir, "modules")
+	_ = os.MkdirAll(filepath.Join(modDir, "telegram"), 0755)
+	_ = os.MkdirAll(filepath.Join(modDir, "websearch"), 0755)
+
+	exists, _, count, names := findModules(tmpDir)
+	if !exists || count != 2 {
+		t.Fatalf("expected 2 modules, got %d (exists=%v)", count, exists)
+	}
+	if len(names) != 2 {
+		t.Fatalf("expected 2 names, got %v", names)
+	}
+}
+
 func TestLiveOfficialSignature(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping live signature test in short mode")

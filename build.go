@@ -14,6 +14,15 @@ func runBuild(args []string) error {
 		return err
 	}
 
+	if !isSpermaCoreRoot(rootDir) {
+		logWarning("'%s' does not appear to be a valid SpermaCore root (missing core/ or CMakeLists.txt)", rootDir)
+	}
+
+	hasMod, modPath, count, _ := findModules(rootDir)
+	if !hasMod || count == 0 {
+		return fmt.Errorf("modules directory not found or empty at '%s'. Run 'scpkg bootstrap' first to download modules", modPath)
+	}
+
 	target := ""
 	if len(args) > 0 {
 		target = args[0]

@@ -21,6 +21,19 @@ func runBootstrap(args []string) error {
 		return err
 	}
 
+	if isSpermaCoreRoot(rootDir) {
+		logSuccess("spermacore root verified: %s", rootDir)
+	} else {
+		logWarning("target directory '%s' does not appear to be a SpermaCore root", rootDir)
+	}
+
+	hasMod, modPath, count, _ := findModules(rootDir)
+	if hasMod && count > 0 {
+		logInfo("detected existing modules directory with %d modules, updating...", count)
+	} else {
+		logInfo("modules directory not found, will be created at %s", modPath)
+	}
+
 	url := defaultBootstrapURL
 	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
 		url = strings.TrimSpace(args[0])
@@ -59,8 +72,7 @@ func runBootstrap(args []string) error {
 	// unpack archive
 	s = newSpinner("unpacking into modules/...")
 	s.start()
-	modulesDir := filepath.Join(rootDir, "modules")
-	_ = os.MkdirAll(modulesDir, 0755)
+	_ = os.MkdirAll(modPath, 0755)
 
 	if err := extractSafe(tmpZip, rootDir); err != nil {
 		s.stopWithFail("extraction failed")

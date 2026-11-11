@@ -60,47 +60,137 @@ func saveConfig(cfg *scpkgConfig) error {
 	return os.WriteFile(cfgFile, data, 0644)
 }
 
-// resolveRootPath gets configured spermacore path or prompts user
-func resolveRootPath(interactive bool) (string, error) {
-	// check env override first
-	if envPath := os.Getenv("SPERMACORE_PATH"); envPath != "" {
-		return filepath.Clean(envPath), nil
+// isSpermaCoreRoot verifies if a directory looks like a valid SpermaCore repository
+func isSpermaCoreRoot(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return false
 	}
 
-	cfg, _ := loadConfig()
-	if cfg.RootPath != "" {
-		if info, err := os.Stat(cfg.RootPath); err == nil && info.IsDir() {
-			return cfg.RootPath, nil
+	coreDir := filepath.Join(path, "core")
+	if cInfo, err := os.Stat(coreDir); err != nil || !cInfo.IsDir() {
+		return false
+	}
+
+	cmakeFile := filepath.Join(path, "CMakeLists.txt")
+	tomlFile := filepath.Join(path, "config.toml")
+	_, errCmake := os.Stat(cmakeFile)
+	_, errToml := os.Stat(tomlFile)
+	return errCmake == nil || errToml == nil
+}
+
+// findModules inspects root directory for modules folder and lists contained modules
+func findModules(rootDir string) (exists bool, modPath string, count int, names []string) {
+	modPath = filepath.Join(rootDir, "modules")
+	info, err := os.Stat(modPath)
+	if err != nil || !info.IsDir() {
+		return false, modPath, 0, nil
+	}
+
+	entries, err := os.ReadDir(modPath)
+	if err != nil {
+		return true, modPath, 0, nil
+	}
+
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			count++
+			names = append(names, e.Name())
+		}
+	}
+	return true, modPath, count, names
+}
+
+// findSpermaCoreCandidates searches common locations for SpermaCore roots
+func findSpermaCoreCandidates() []string {
+	var candidates []string
+	seen := make(map[string]bool)
+
+	addCandidate := func(p string) {
+		abs, err := filepath.Abs(p)
+		if err != nil || seen[abs] {
+			return
+		}
+		if isSpermaCoreRoot(abs) {
+			seen[abs] = true
+			candidates = append(candidates, abs)
 		}
 	}
 
-	// if not interactive or current dir looks like spermacore, default to current
+	addCandidate(".")
+	addCandidate("..")
+	addCandidate("../spermacore")
+	addCandidate("../spermacore-clean")
+
+	if home, err := os.UserHomeDir(); err == nil {
+		addCandidate(filepath.Join(home, "Documents", "spermacore"))
+		addCandidate(filepath.Join(home, "Documents", "spermacore-clean"))
+		addCandidate(filepath.Join(home, "spermacore"))
+		addCandidate(filepath.Join(home, "spermacore-clean"))
+	}
+
+	return candidates
+}
+
+// resolveRootPath gets configured spermacore path, searches candidates, or prompts user
+func resolveRootPath(interactive bool) (string, error) {
+	// 1. check env override first
+	if envPath := os.Getenv("SPERMACORE_PATH"); envPath != "" {
+		clean := filepath.Clean(envPath)
+		if isSpermaCoreRoot(clean) {
+			return clean, nil
+		}
+	}
+
+	// 2. check saved config
+	cfg, _ := loadConfig()
+	if cfg.RootPath != "" && isSpermaCoreRoot(cfg.RootPath) {
+		return cfg.RootPath, nil
+	}
+
+	// 3. check current directory
+	if isSpermaCoreRoot(".") {
+		abs, _ := filepath.Abs(".")
+		cfg.RootPath = abs
+		_ = saveConfig(cfg)
+		return abs, nil
+	}
+
+	// 4. search candidate paths
+	candidates := findSpermaCoreCandidates()
+	defaultPath := "."
+	if len(candidates) > 0 {
+		defaultPath = candidates[0]
+	}
+
 	if !interactive {
+		if len(candidates) > 0 {
+			cfg.RootPath = defaultPath
+			_ = saveConfig(cfg)
+			return defaultPath, nil
+		}
 		return ".", nil
 	}
 
-	// check if current directory is already spermacore
-	if _, err := os.Stat("core"); err == nil {
-		if _, err := os.Stat("config.toml"); err == nil {
-			abs, _ := filepath.Abs(".")
-			cfg.RootPath = abs
-			_ = saveConfig(cfg)
-			return abs, nil
-		}
-	}
-
-	fmt.Print("scpkg: enter path to spermacore root directory [default: .]: ")
+	fmt.Printf("scpkg: enter path to spermacore root directory [default: %s]: ", defaultPath)
 	reader := bufio.NewReader(os.Stdin)
 	text, _ := reader.ReadString('\n')
 	input := strings.TrimSpace(text)
 
 	if input == "" {
-		input = "."
+		input = defaultPath
 	}
 
 	absPath, err := filepath.Abs(input)
 	if err != nil {
 		return input, nil
+	}
+
+	if !isSpermaCoreRoot(absPath) {
+		logWarning("'%s' does not appear to be a valid SpermaCore root (missing core/ or CMakeLists.txt)", absPath)
 	}
 
 	cfg.RootPath = absPath
@@ -123,10 +213,18 @@ func runNewPath(args []string) error {
 		if cfg.RootPath != "" {
 			fmt.Printf("scpkg: current spermacore root is: %s\n", cfg.RootPath)
 		}
-		fmt.Print("scpkg: enter new spermacore root path: ")
+		candidates := findSpermaCoreCandidates()
+		defHint := ""
+		if len(candidates) > 0 {
+			defHint = fmt.Sprintf(" [detected: %s]", candidates[0])
+		}
+		fmt.Printf("scpkg: enter new spermacore root path%s: ", defHint)
 		reader := bufio.NewReader(os.Stdin)
 		text, _ := reader.ReadString('\n')
 		newPath = strings.TrimSpace(text)
+		if newPath == "" && len(candidates) > 0 {
+			newPath = candidates[0]
+		}
 	}
 
 	if newPath == "" {
@@ -138,8 +236,19 @@ func runNewPath(args []string) error {
 		return err
 	}
 
-	if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
-		logWarning("directory '%s' does not exist yet", absPath)
+	if !isSpermaCoreRoot(absPath) {
+		logWarning("directory '%s' does not appear to be a SpermaCore root (missing core/ or CMakeLists.txt)", absPath)
+	} else {
+		logSuccess("verified SpermaCore root at: %s", absPath)
+	}
+
+	exists, modPath, count, names := findModules(absPath)
+	if exists && count > 0 {
+		logSuccess("found modules directory at %s (%d modules: %s)", modPath, count, strings.Join(names, ", "))
+	} else if exists {
+		logWarning("modules directory exists at %s but is empty (run 'scpkg bootstrap' to fetch)", modPath)
+	} else {
+		logWarning("modules directory not found in '%s' (run 'scpkg bootstrap' to install)", absPath)
 	}
 
 	cfg.RootPath = absPath

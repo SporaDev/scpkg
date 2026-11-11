@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const Version = "1.0.1"
+
 func main() {
 	if len(os.Args) < 2 {
 		printHelp()
@@ -33,6 +35,9 @@ func main() {
 		err = runSign(args)
 	case "keygen":
 		err = runKeygen()
+	case "version", "-v", "--version":
+		fmt.Println("scpkg version " + Version)
+		return
 	case "help", "-h", "--help":
 		printHelp()
 	default:
@@ -48,8 +53,7 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println("scpkg: package and module manager for spermacore")
-	fmt.Println()
+	fmt.Printf("scpkg version %s: package and module manager for spermacore\n\n", Version)
 	fmt.Println("usage:")
 	fmt.Println("  scpkg bootstrap [url]         fetch modules, setup .env and compile")
 	fmt.Println("  scpkg install <repo>          install a module from github (e.g. user/repo)")
@@ -59,4 +63,5 @@ func printHelp() {
 	fmt.Println("  scpkg sc-new-path [path]      set or update default spermacore root path")
 	fmt.Println("  scpkg sign <file> -k <key>    sign a package with ed25519")
 	fmt.Println("  scpkg keygen                  generate ed25519 signing keypair")
+	fmt.Println("  scpkg version                 print version information")
 }
