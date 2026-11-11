@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const officialPublicKeyHex = "f936d5ba5bfa8ce786f4a88fceec45d3e0b7cb347ec87b8d4f40f0c055627236"
+const officialPublicKeyHex = "86d8d030eceb77abfb9c61e07c518da66687986820697f4bb86132309cfceb27"
 
 // hasOfficialSignature verifies ed25519 signature from remote or local .sig
 func hasOfficialSignature(sigURL, zipPath string) bool {
@@ -23,21 +23,30 @@ func hasOfficialSignature(sigURL, zipPath string) bool {
 		return false
 	}
 
+	var sigBytes []byte
+
+	// try remote signature first
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(sigURL)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+	if err == nil && resp.StatusCode == http.StatusOK {
+		defer resp.Body.Close()
+		sigData, err := io.ReadAll(resp.Body)
+		if err == nil {
+			sigHex := strings.TrimSpace(string(sigData))
+			sigBytes, _ = hex.DecodeString(sigHex)
+		}
 	}
-	defer resp.Body.Close()
 
-	sigData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false
+	// fallback to local .sig if remote not available
+	if len(sigBytes) == 0 {
+		localSig := zipPath + ".sig"
+		if data, err := os.ReadFile(localSig); err == nil {
+			sigHex := strings.TrimSpace(string(data))
+			sigBytes, _ = hex.DecodeString(sigHex)
+		}
 	}
 
-	sigHex := strings.TrimSpace(string(sigData))
-	sigBytes, err := hex.DecodeString(sigHex)
-	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+	if len(sigBytes) != ed25519.SignatureSize {
 		return false
 	}
 
@@ -50,7 +59,24 @@ func hasOfficialSignature(sigURL, zipPath string) bool {
 	return ed25519.Verify(pubBytes, hash[:], sigBytes)
 }
 
-// runSign signs a file with an ed25519 private key
+func derivePrivateKey(keyData []byte) (ed25519.PrivateKey, error) {
+	keyStr := strings.TrimSpace(string(keyData))
+	if len(keyStr) == 128 {
+		if b, err := hex.DecodeString(keyStr); err == nil && len(b) == ed25519.PrivateKeySize {
+			return ed25519.PrivateKey(b), nil
+		}
+	}
+	if len(keyStr) == 64 {
+		if b, err := hex.DecodeString(keyStr); err == nil && len(b) == ed25519.SeedSize {
+			return ed25519.NewKeyFromSeed(b), nil
+		}
+	}
+	// derive 32-byte seed from passphrase
+	seed := sha256.Sum256([]byte(keyStr))
+	return ed25519.NewKeyFromSeed(seed[:]), nil
+}
+
+// runSign signs a file with an ed25519 private key or passphrase
 func runSign(args []string) error {
 	if len(args) < 3 || (args[1] != "-k" && args[1] != "-key") {
 		return errors.New("usage: scpkg sign <file> -k <private_key_file>")
@@ -64,10 +90,9 @@ func runSign(args []string) error {
 		return fmt.Errorf("failed to read key file: %w", err)
 	}
 
-	keyHex := strings.TrimSpace(string(keyData))
-	privKeyBytes, err := hex.DecodeString(keyHex)
-	if err != nil || len(privKeyBytes) != ed25519.PrivateKeySize {
-		return errors.New("invalid ed25519 private key length")
+	privKey, err := derivePrivateKey(keyData)
+	if err != nil {
+		return fmt.Errorf("invalid key: %w", err)
 	}
 
 	fileBytes, err := os.ReadFile(filePath)
@@ -76,7 +101,7 @@ func runSign(args []string) error {
 	}
 
 	hash := sha256.Sum256(fileBytes)
-	sig := ed25519.Sign(privKeyBytes, hash[:])
+	sig := ed25519.Sign(privKey, hash[:])
 
 	sigPath := filePath + ".sig"
 	sigHex := hex.EncodeToString(sig)
