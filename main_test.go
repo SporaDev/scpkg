@@ -61,3 +61,22 @@ func TestSignAndVerify(t *testing.T) {
 		t.Fatalf("expected 64 char hex, got %d", len(pubHex))
 	}
 }
+
+func TestLiveOfficialSignature(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live signature test in short mode")
+	}
+
+	tmpFile := filepath.Join(os.TempDir(), "live-modules.zip")
+	defer os.Remove(tmpFile)
+
+	err := downloadWithProgress(defaultBootstrapURL, tmpFile, "testing download")
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+
+	sigURL := defaultBootstrapURL + ".sig"
+	if !hasOfficialSignature(sigURL, tmpFile) {
+		t.Fatalf("live official signature verification failed")
+	}
+}
