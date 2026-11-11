@@ -1,4 +1,7 @@
 *.exe
+bin/scpkg
+bin/scpkg.exe
 build/
 *.sig
 sc-private.key
+node_modules/

@@ -1,0 +1,25 @@
+{
+  "name": "scpkg",
+  "version": "1.0.0",
+  "description": "Zero-dependency package manager and bootstrapper for SpermaCore",
+  "bin": {
+    "scpkg": "./bin/scpkg.js"
+  },
+  "scripts": {
+    "postinstall": "node ./scripts/install.js"
+  },
+  "keywords": [
+    "spermacore",
+    "package-manager",
+    "cli",
+    "telegram",
+    "userbot",
+    "llm"
+  ],
+  "author": "uglyaz0tix",
+  "license": "BSD-2-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SporaDev/scpkg.git"
+  }
+}
