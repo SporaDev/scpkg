@@ -604,31 +604,16 @@ func runVerify(args []string) error {
 }
 
 func printVerificationCard(res *ModuleVerificationResult) {
-	fmt.Println()
 	switch res.Status {
 	case StatusOfficial:
-		logSuccess("MODULE VERIFICATION: OFFICIAL SPERMACORE MODULE")
-		fmt.Printf("  • Module:     %s\n", res.Module)
-		fmt.Printf("  • Author:     %s\n", res.Author)
-		fmt.Printf("  • Status:     VERIFIED OFFICIAL DEVELOPER\n")
-		fmt.Printf("  • Public Key: %s\n", res.PublicKey)
-		fmt.Printf("  • Files:      %d source files\n", res.Files)
+		logSuccess("module '%s': official (author: %s, files: %d)", res.Module, res.Author, res.Files)
 	case StatusCommunity:
-		logWarning("MODULE VERIFICATION: COMMUNITY / UNOFFICIAL MODULE")
-		fmt.Printf("  • Module:     %s\n", res.Module)
-		fmt.Printf("  • Author:     %s\n", res.Author)
-		fmt.Printf("  • Status:     COMMUNITY SIGNED\n")
-		fmt.Printf("  • Public Key: %s\n", res.PublicKey)
+		logWarning("module '%s': community signed (author: %s)", res.Module, res.Author)
 	case StatusUnsigned:
-		logWarning("MODULE VERIFICATION: UNSIGNED MODULE")
-		fmt.Printf("  • Module:     %s\n", res.Module)
-		fmt.Printf("  • Status:     UNSIGNED\n")
+		logWarning("module '%s': unsigned", res.Module)
 	case StatusTampered:
-		logError("MODULE VERIFICATION: INTEGRITY FAILURE")
-		fmt.Printf("  • Module:     %s\n", res.Module)
-		fmt.Printf("  • Reason:     %v\n", res.Error)
+		logError("module '%s': integrity check failed (%v)", res.Module, res.Error)
 	}
-	fmt.Println()
 }
 
 func runKeygen(args []string) error {

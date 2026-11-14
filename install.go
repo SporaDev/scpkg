@@ -168,30 +168,25 @@ func runInstall(args []string) error {
 
 	switch res.Status {
 	case StatusOfficial:
-		logSuccess("VERIFIED OFFICIAL MODULE: '%s'", repo)
-		logInfo("  • Developer:  %s", res.Author)
-		logInfo("  • Key:        %s", res.PublicKey)
-		logInfo("  • Files:      %d source files intact", res.Files)
+		logSuccess("module '%s' verified (official)", repo)
 
 	case StatusCommunity:
-		printUnofficialWarning(res, repo, false)
-		if !askConfirm("scpkg: do you want to install this UNOFFICIAL module? [y/N]: ") {
-			logInfo("installation cancelled by user")
+		logWarning("module '%s' is not official (signed by %s)", repo, res.Author)
+		if !askConfirm("scpkg: install unofficial module? [y/N]: ") {
+			logInfo("installation cancelled")
 			return nil
 		}
-		logWarning("proceeding with community module installation...")
 
 	case StatusUnsigned:
-		printUnofficialWarning(res, repo, true)
-		if !askConfirm("scpkg: do you want to install this UNSIGNED module? [y/N]: ") {
-			logInfo("installation cancelled by user")
+		logWarning("module '%s' is not signed", repo)
+		if !askConfirm("scpkg: install unsigned module? [y/N]: ") {
+			logInfo("installation cancelled")
 			return nil
 		}
-		logWarning("proceeding with unsigned module installation...")
 
 	case StatusTampered:
-		printTamperAlert(res, repo)
-		return fmt.Errorf("security check failed for '%s': %w", repo, res.Error)
+		logError("module '%s' verification failed: %v", repo, res.Error)
+		return fmt.Errorf("module verification failed: %w", res.Error)
 	}
 
 	// 5. Deploy to destination
@@ -214,40 +209,6 @@ func runInstall(args []string) error {
 
 	logSuccess("module '%s' installed successfully", repo)
 	return nil
-}
-
-func printUnofficialWarning(res *ModuleVerificationResult, repo string, unsigned bool) {
-	fmt.Println()
-	fmt.Println("\033[33m" + strings.Repeat("=", 64))
-	fmt.Println("                ⚠️   SECURITY WARNING   ⚠️")
-	fmt.Println("            UNOFFICIAL MODULE DETECTED")
-	fmt.Println(strings.Repeat("=", 64) + "\033[0m")
-	fmt.Printf("[!] Module:    '%s'\n", repo)
-	if unsigned {
-		fmt.Println("[!] Status:    UNSIGNED MODULE (NO SIGNATURE)")
-	} else {
-		fmt.Println("[!] Status:    COMMUNITY SIGNED (NOT AN OFFICIAL DEVELOPER)")
-		fmt.Printf("[!] Author:    %s\n", res.Author)
-		fmt.Printf("[!] Key:       %s\n", res.PublicKey)
-	}
-	fmt.Println()
-	fmt.Println("\033[33m  NOTICE: Native C++ modules run with full system access")
-	fmt.Println("  (memory, filesystem, network). Unofficial modules are unvetted.")
-	fmt.Println(strings.Repeat("=", 64) + "\033[0m")
-	fmt.Println()
-}
-
-func printTamperAlert(res *ModuleVerificationResult, repo string) {
-	fmt.Println()
-	fmt.Println("\033[31m" + strings.Repeat("=", 64))
-	fmt.Println("            ⛔  CRITICAL SECURITY ALERT  ⛔")
-	fmt.Println("           SIGNATURE VERIFICATION FAILED")
-	fmt.Println(strings.Repeat("=", 64) + "\033[0m")
-	fmt.Printf("[✗] Module '%s' signature verification failed!\n", repo)
-	fmt.Printf("[✗] Reason: %v\n", res.Error)
-	fmt.Println("  Files were modified or corrupted. Installation is blocked.")
-	fmt.Println("\033[31m" + strings.Repeat("=", 64) + "\033[0m")
-	fmt.Println()
 }
 
 func copyDir(src, dst string) error {
