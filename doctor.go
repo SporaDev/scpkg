@@ -1,13 +1,14 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 // runDoctor diagnoses tools and environment
@@ -21,14 +22,37 @@ func runDoctor() error {
 		fmt.Printf("[!] spermacore root: %s (warning: missing core/ or CMakeLists.txt)\n", rootDir)
 	}
 
-	// check modules directory
+	// check modules directory and signature integrity
 	hasMod, modPath, count, names := findModules(rootDir)
 	if hasMod && count > 0 {
-		fmt.Printf("[✓] modules folder: found at %s (%d modules: %s)\n", modPath, count, strings.Join(names, ", "))
+		fmt.Printf("[✓] modules folder: found at %s (%d modules)\n", modPath, count)
+		for _, name := range names {
+			subDir := filepath.Join(modPath, name)
+			res := VerifyModuleDir(subDir)
+			switch res.Status {
+			case StatusOfficial:
+				fmt.Printf("    • %-14s %s[✓] official%s (signed by %s)\n", name, colorGreen, colorReset, res.Author)
+			case StatusCommunity:
+				fmt.Printf("    • %-14s %s[!] unofficial%s (community signed: %s)\n", name, colorYellow, colorReset, res.Author)
+			case StatusUnsigned:
+				fmt.Printf("    • %-14s %s[-] unsigned%s (no signature)\n", name, colorDim, colorReset)
+			case StatusTampered:
+				fmt.Printf("    • %-14s %s[✗] tampered%s (%v)\n", name, colorRed, colorReset, res.Error)
+			}
+		}
 	} else if hasMod {
 		fmt.Printf("[-] modules folder: found at %s (empty, run 'scpkg bootstrap' to fetch)\n", modPath)
 	} else {
 		fmt.Printf("[!] modules folder: not found in %s (run 'scpkg bootstrap' to fetch)\n", rootDir)
+	}
+
+	// check developer signing key
+	if priv, err := resolvePrivateKey(""); err == nil {
+		pub := priv.Public().(ed25519.PublicKey)
+		pubHex := hex.EncodeToString(pub)
+		fmt.Printf("[✓] developer signing key: loaded (%s..., official: %v)\n", pubHex[:16], isOfficialPublicKey(pubHex))
+	} else {
+		fmt.Printf("[-] developer signing key: not configured (optional, run 'scpkg keygen' for signing modules)\n")
 	}
 
 	// check go

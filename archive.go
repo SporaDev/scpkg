@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// downloadWithProgress streams url to file while rendering a tui progress bar
+// downloadWithProgress streams url to file with tui progress bar
 func downloadWithProgress(url, dst, label string) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Get(url)
@@ -67,7 +67,7 @@ func downloadWithProgress(url, dst, label string) error {
 	return nil
 }
 
-// extractSafe extracts zip archive into destDir with zip slip protection
+// extractSafe extracts zip archive into destDir with zip-slip protection
 func extractSafe(zipPath, destDir string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -112,7 +112,7 @@ func extractSafe(zipPath, destDir string) error {
 	return nil
 }
 
-// extractStripTop extracts archive while stripping top-level directory (e.g. github zip)
+// extractStripTop extracts archive while stripping top-level directory
 func extractStripTop(zipPath, destDir string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -160,6 +160,64 @@ func extractStripTop(zipPath, destDir string) error {
 		}
 	}
 	return nil
+}
+
+// createModuleZip archives module files excluding build artifacts
+func createModuleZip(moduleDir, zipPath string) error {
+	out, err := os.Create(zipPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	w := zip.NewWriter(out)
+	defer w.Close()
+
+	return filepath.Walk(moduleDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(moduleDir, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+
+		norm := filepath.ToSlash(rel)
+		base := filepath.Base(norm)
+
+		// Allow module.sig in archive even if hashing excludes it
+		if base != ModuleSigFileName && !shouldIncludeInModuleSignature(rel, info.IsDir()) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = norm
+		header.Method = zip.Deflate
+
+		writer, err := w.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		return err
+	})
 }
 
 func copyFile(src, dst string) error {

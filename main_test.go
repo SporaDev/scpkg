@@ -17,6 +17,13 @@ func TestDoctor(t *testing.T) {
 }
 
 func TestConfigPath(t *testing.T) {
+	origCfg, _ := loadConfig()
+	defer func() {
+		if origCfg != nil {
+			_ = saveConfig(origCfg)
+		}
+	}()
+
 	cfg := &scpkgConfig{RootPath: "test-path"}
 	err := saveConfig(cfg)
 	if err != nil {
@@ -102,6 +109,225 @@ func TestModulesSearch(t *testing.T) {
 	}
 	if len(names) != 2 {
 		t.Fatalf("expected 2 names, got %v", names)
+	}
+}
+
+func TestModuleSignAndVerifyOfficial(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-mod-official")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "about.toml"), []byte("name = \"testmod\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "src", "testmod.cpp"), []byte("#include <stdio.h>\n"), 0644)
+
+	// Use official developer key
+	devPriv, err := resolvePrivateKey("")
+	if err != nil {
+		t.Fatalf("failed to resolve dev key: %v", err)
+	}
+
+	sig, err := SignModule(tmpDir, devPriv, "SporaDev Official")
+	if err != nil {
+		t.Fatalf("SignModule failed: %v", err)
+	}
+
+	if sig.Module != "testmod" {
+		t.Fatalf("expected module testmod, got %s", sig.Module)
+	}
+
+	res := VerifyModuleDir(tmpDir)
+	if res.Status != StatusOfficial {
+		t.Fatalf("expected StatusOfficial, got %s (err: %v)", res.Status, res.Error)
+	}
+	if res.Files != 2 {
+		t.Fatalf("expected 2 files verified, got %d", res.Files)
+	}
+}
+
+func TestModuleExcludeBuildArtifacts(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-mod-build")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "about.toml"), []byte("name = \"buildtest\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "src", "main.cpp"), []byte("int main(){return 0;}\n"), 0644)
+
+	devPriv, err := resolvePrivateKey("")
+	if err != nil {
+		t.Fatalf("resolvePrivateKey failed: %v", err)
+	}
+
+	_, err = SignModule(tmpDir, devPriv, "SporaDev Official")
+	if err != nil {
+		t.Fatalf("SignModule failed: %v", err)
+	}
+
+	// Now simulate a CMake build generating build/ directory and .dll / .obj
+	buildDir := filepath.Join(tmpDir, "build")
+	_ = os.MkdirAll(filepath.Join(buildDir, "cmake"), 0755)
+	_ = os.WriteFile(filepath.Join(buildDir, "buildtest.dll"), []byte("binary dll content"), 0644)
+	_ = os.WriteFile(filepath.Join(buildDir, "buildtest.obj"), []byte("binary obj content"), 0644)
+
+	// Verification should still pass 100% because build/ is canonically excluded!
+	res := VerifyModuleDir(tmpDir)
+	if res.Status != StatusOfficial {
+		t.Fatalf("expected StatusOfficial despite build artifacts, got %s (err: %v)", res.Status, res.Error)
+	}
+}
+
+func TestModuleTamperDetection(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-mod-tamper")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "about.toml"), []byte("name = \"tampertest\"\n"), 0644)
+	cppPath := filepath.Join(tmpDir, "src", "main.cpp")
+	_ = os.WriteFile(cppPath, []byte("int original();\n"), 0644)
+
+	devPriv, err := resolvePrivateKey("")
+	if err != nil {
+		t.Fatalf("resolvePrivateKey failed: %v", err)
+	}
+
+	_, err = SignModule(tmpDir, devPriv, "SporaDev Official")
+	if err != nil {
+		t.Fatalf("SignModule failed: %v", err)
+	}
+
+	// Modify file
+	_ = os.WriteFile(cppPath, []byte("int tampered();\n"), 0644)
+
+	res := VerifyModuleDir(tmpDir)
+	if res.Status != StatusTampered {
+		t.Fatalf("expected StatusTampered after modifying source, got %s", res.Status)
+	}
+}
+
+func TestModuleExtraFileDetection(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-mod-extra")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "about.toml"), []byte("name = \"extratest\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "src", "main.cpp"), []byte("int ok();\n"), 0644)
+
+	devPriv, err := resolvePrivateKey("")
+	if err != nil {
+		t.Fatalf("resolvePrivateKey failed: %v", err)
+	}
+
+	_, err = SignModule(tmpDir, devPriv, "SporaDev Official")
+	if err != nil {
+		t.Fatalf("SignModule failed: %v", err)
+	}
+
+	// Add unauthorized extra source file
+	_ = os.WriteFile(filepath.Join(tmpDir, "src", "injected.cpp"), []byte("malicious injected code;\n"), 0644)
+
+	res := VerifyModuleDir(tmpDir)
+	if res.Status != StatusTampered {
+		t.Fatalf("expected StatusTampered after injecting extra file, got %s", res.Status)
+	}
+}
+
+func TestUnofficialCommunitySignature(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-mod-community")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "about.toml"), []byte("name = \"communitymod\"\n"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "src", "comm.cpp"), []byte("void hello();\n"), 0644)
+
+	// Generate a third-party / community keypair
+	_, commPriv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("keygen failed: %v", err)
+	}
+
+	_, err = SignModule(tmpDir, commPriv, "Random Community Dev")
+	if err != nil {
+		t.Fatalf("SignModule failed: %v", err)
+	}
+
+	res := VerifyModuleDir(tmpDir)
+	if res.Status != StatusCommunity {
+		t.Fatalf("expected StatusCommunity for unofficial signer, got %s", res.Status)
+	}
+}
+
+func TestUnsignedModule(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-mod-unsigned")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	_ = os.MkdirAll(filepath.Join(tmpDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "about.toml"), []byte("name = \"unsignedmod\"\n"), 0644)
+
+	res := VerifyModuleDir(tmpDir)
+	if res.Status != StatusUnsigned {
+		t.Fatalf("expected StatusUnsigned for module without module.sig, got %s", res.Status)
+	}
+}
+
+func TestInitAndPack(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-init-pack")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+	_ = os.MkdirAll(tmpDir, 0755)
+
+	modDir := filepath.Join(tmpDir, "samplemod")
+	if err := runInit([]string{modDir}); err != nil {
+		t.Fatalf("runInit failed: %v", err)
+	}
+
+	aboutPath := filepath.Join(modDir, "about.toml")
+	if _, err := os.Stat(aboutPath); err != nil {
+		t.Fatalf("about.toml missing after init")
+	}
+
+	zipPath := filepath.Join(tmpDir, "samplemod.zip")
+	if err := runPack([]string{modDir, "-o", zipPath}); err != nil {
+		t.Fatalf("runPack failed: %v", err)
+	}
+
+	if _, err := os.Stat(zipPath); err != nil {
+		t.Fatalf("zip missing after pack")
+	}
+
+	res := VerifyModuleDir(modDir)
+	if res.Status != StatusOfficial {
+		t.Fatalf("expected StatusOfficial after pack, got %s", res.Status)
+	}
+}
+
+func TestPackUnsigned(t *testing.T) {
+	tmpDir := filepath.Join(os.TempDir(), "sc-test-pack-nosign")
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+	_ = os.MkdirAll(tmpDir, 0755)
+
+	modDir := filepath.Join(tmpDir, "usermod")
+	if err := runInit([]string{modDir}); err != nil {
+		t.Fatalf("runInit failed: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "usermod.zip")
+	if err := runPack([]string{modDir, "--no-sign", "-o", zipPath}); err != nil {
+		t.Fatalf("runPack failed: %v", err)
+	}
+
+	if _, err := os.Stat(zipPath); err != nil {
+		t.Fatalf("zip missing after pack")
+	}
+
+	res := VerifyModuleDir(modDir)
+	if res.Status != StatusUnsigned {
+		t.Fatalf("expected StatusUnsigned with --no-sign, got %s", res.Status)
 	}
 }
 

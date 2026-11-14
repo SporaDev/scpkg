@@ -1,57 +1,65 @@
 # scpkg
 
-Modular, zero-dependency package manager and bootstrapper for SpermaCore modules.
+Modular package manager for SpermaCore modules.
 
 ## Features
 
-* Pure Go standard library: no external dependencies.
-* Smooth TUI: terminal spinners, real-time download progress bar, and clean status indicators.
-* Project path management: stores and remembers your spermacore root path.
-* Download and extract official module releases (`releases/download/modules/modules.zip`).
-* Cryptographic signature verification using Ed25519.
-* Native CMake and Ninja compilation for C++20 ABI plugins.
-* Community safety warnings for third-party plugins.
+* **Zero external dependencies**: pure Go standard library.
+* **Cryptographic Signatures**: Ed25519 canonical manifest signing.
+* **Security Guard**: prominent warnings on unofficial or unsigned native C++ plugins.
+* **Registry Integration**: supports `scpkg-mainrepo` index and direct GitHub / local installations.
+* **Module Packaging**: `init` and `pack` commands for module development and publishing.
 
 ## Commands
 
 ```bash
-# Bootstrap spermacore: prompts for root path if unset, fetches modules and compiles
-go run . bootstrap
+# Bootstrap base modules from SpermaCore releases
+scpkg bootstrap [url]
 
-# Set or update the default spermacore root directory
-go run . sc-new-path [path]
+# Install module from mainrepo, GitHub or local path
+scpkg install <name|user/repo|url|path>
 
-# Install a third-party module from github
-go run . install username/module-repo
+# Create a new module scaffold (about.toml + starter C++ plugin)
+scpkg init <module_name>
 
-# Compile modules with cmake
-go run . build [module]
+# Validate, sign and pack module into zip for release
+scpkg pack [dir] [-k key] [-o out.zip]
 
-# Diagnose environment and dependencies
-go run . doctor
+# Compile modules with CMake and Ninja
+scpkg build [module]
+
+# Diagnose environment and audit installed module signatures
+scpkg doctor
 
 # Clean build artifacts
-go run . clean
+scpkg clean
 
-# Keypair generation and release signing (for developers)
-go run . keygen
-go run . sign <file> -k <private_key>
+# Verify cryptographic signature of module or file
+scpkg verify <path>
+
+# Sign module or file with developer key
+scpkg sign <dir|file> [-k key] [-author "Name"]
+
+# Batch sign all modules in directory
+scpkg sign-modules <dir> [-k key]
+
+# Generate Ed25519 developer signing keypair
+scpkg keygen [keyfile]
+
+# Version and official developer keys
+scpkg version
 ```
 
-## Structure
+## Module Description (`about.toml`)
 
-```text
-scpkg/
-├── main.go         # Entry point and command router
-├── config.go       # Path persistence (~/.scpkg/config.json) and sc-new-path
-├── tui.go          # Spinners, progress bars and terminal styling
-├── bootstrap.go    # Project bootstrapping workflow
-├── install.go      # GitHub module installation and safety prompts
-├── build.go        # CMake and Ninja orchestration
-├── archive.go      # Safe streaming downloads and zip extraction
-├── crypto.go       # Ed25519 signing and verification
-├── doctor.go       # Environment health checks
-└── clean.go        # Cache and build directory cleanup
+Every module includes an `about.toml` descriptor:
+
+```toml
+name = "my_module"
+version = "1.0.0"
+author = "DeveloperName"
+human_description = "Short human readable description"
+llm_description = "Description of tools for agent calling"
 ```
 
 ## License
